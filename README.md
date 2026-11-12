@@ -138,3 +138,8 @@ The out-of-tree port itself is [w568w/rknpu-module](https://github.com/w568w/rkn
 the vendor driver is Rockchip's `rknpu` 0.9.8. This repository only carries the
 6.18 compatibility fixes, the Radxa ZERO 3W device tree overlay and the test
 harness.
+
+## Tooling
+
+Diagnosis and verification were done with [Hermes Agent](https://github.com/NousResearch/hermes-agent);
+cross-repo agent sessions were coordinated with [agents-room](https://github.com/asovetov/agents-room).
