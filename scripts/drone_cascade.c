@@ -25,6 +25,7 @@ static int CROP = 640;   /* размер кропа до масштабиров�
 #define MAXBOX 128
 #define MISS_LIMIT 2
 #define COAST_LIMIT 12
+#define MAX_JUMP 40.0f   /* px: максимальный скачок цели между кадрами */
 
 static double now_ms(void)
 {
@@ -205,11 +206,24 @@ int main(int argc, char **argv)
 			if (b.conf >= thr) {
 				float gx = rx + b.x * CROP / (float)ROI;
 				float gy = ry + b.y * CROP / (float)ROI;
+			}
+			if (b.conf >= thr) {
+				float gx = rx + b.x * CROP / (float)ROI;
+				float gy = ry + b.y * CROP / (float)ROI;
 				vx = 0.6f * (gx - cx) + 0.4f * vx;
 				vy = 0.6f * (gy - cy) + 0.4f * vy;
 				cx = gx; cy = gy;
 				last_w = b.w * CROP / (float)ROI;
 				last_h = b.h * CROP / (float)ROI;
+				/* адаптивный зум: держим цель примерно на 1/20 стороны кропа */
+				if (!getenv("CROP")) {
+					float sz = fmaxf(last_w, last_h);
+					int want = (int)(sz * 20.0f);
+					if (want < 160) want = 160;
+					if (want > 640) want = 640;
+					want = (want + 15) / 32 * 32;
+					CROP = want;
+				}
 				miss = 0;
 				state = 'T';
 				tracked_frames++;
