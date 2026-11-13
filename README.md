@@ -124,6 +124,14 @@ LD_LIBRARY_PATH=/usr/lib ./rknn_bench resnet18_for_rk3566_rk3568.rknn 30
 # iters: 30  per-frame: 9.08 ms  fps: 110.2
 ```
 
+## YOLO detector on this NPU (INT8 works, with one caveat)
+
+If your YOLOv8/11 model converts but detects nothing, the confidence channel is
+being quantized to zero — the single `[1, 5, N]` output mixes boxes and scores.
+Split it into two tensors; see `docs/yolo-int8-split-output.md`. Measured on
+RK3566: int8 with the split head runs `yolov8n@640` in **77 ms (12.9 FPS)** and
+still detects a 10–15 px target, versus 291 ms for fp16.
+
 ## Limitations
 
 - IOMMU is off, so the NPU works with physical addresses. Fine for a tracker; to
