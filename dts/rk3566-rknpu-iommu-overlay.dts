@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT overlay for RK3566 NPU support, IOMMU enabled.
+ *
+ * Same as rk3566-rknpu-overlay.dts except the NPU IOMMU node is enabled and
+ * described as "rockchip,iommu" (v1 ops, 32-bit).
+ *
+ * The RK3566 NPU MMU is an IOMMU v1 block: its DTE holds a 32-bit page-table
+ * address, while the SoC's VOP2 / VEPU / VDPU IOMMUs are v2 (40-bit). The
+ * mainline driver keeps a single global ops pointer and refuses a second,
+ * different revision (-EINVAL in rk_iommu_probe), so this overlay only works
+ * on a kernel that carries "iommu/rockchip: Drop global rk_ops in favor of
+ * per-device ops" (patches/0002-iommu-per-device-ops.patch).
+ *
+ * Without that patch the NPU IOMMU fails to probe and the NPU stays in
+ * non-IOMMU mode; use rk3566-rknpu-overlay.dts instead.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/rk3568-cru.h>
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/power/rk3568-power.h>
+
+/* SCMI clock id for the NPU on RK356x: vendor rk356x.dtsi uses <&scmi_clk 2> */
+#define SCMI_CLK_NPU 2
+
+/* 1. NPU power domain ------------------------------------------------- */
+
+&power {
+	pd_npu: power-domain@6 {
+		reg = <RK3568_PD_NPU>;
+		clocks = <&cru ACLK_NPU_PRE>,
+			 <&cru HCLK_NPU_PRE>,
+			 <&cru PCLK_NPU_PRE>;
+		pm_qos = <&qos_npu>;
+		#power-domain-cells = <0>;
+	};
+};
+
+/* 2. NPU device, IOMMU, and OPP table (root-level nodes) ------------- */
+
+&{/} {
+	npu_opp_table: npu-opp-table {
+		compatible = "operating-points-v2";
+
+		opp-200000000 {
+			opp-hz = /bits/ 64 <200000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-297000000 {
+			opp-hz = /bits/ 64 <297000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-600000000 {
+			opp-hz = /bits/ 64 <600000000>;
+			opp-microvolt = <850000 850000 1000000>;
+		};
+		opp-700000000 {
+			opp-hz = /bits/ 64 <700000000>;
+			opp-microvolt = <875000 875000 1000000>;
+		};
+		opp-800000000 {
+			opp-hz = /bits/ 64 <800000000>;
+			opp-microvolt = <925000 925000 1000000>;
+		};
+	};
+
+	npu_mmu: iommu@fde4b000 {
+		compatible = "rockchip,iommu";
+		reg = <0x00 0xfde4b000 0x00 0x40>;
+		interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "rknpu_mmu";
+		clocks = <&cru ACLK_NPU>, <&cru HCLK_NPU>;
+		clock-names = "aclk", "iface";
+		power-domains = <&power RK3568_PD_NPU>;
+		#iommu-cells = <0>;
+		status = "okay";
+	};
+
+	npu@fde40000 {
+		compatible = "rockchip,rk3568-rknpu", "rockchip,rknpu";
+		interrupt-parent = <&gic>;
+		reg = <0x00 0xfde40000 0x00 0x10000>;
+		interrupts = <GIC_SPI 151 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "npu_irq";
+		clocks = <&scmi_clk SCMI_CLK_NPU>,
+			 <&cru CLK_NPU>,
+			 <&cru ACLK_NPU>,
+			 <&cru HCLK_NPU>;
+		clock-names = "scmi_clk", "clk", "aclk", "hclk";
+		assigned-clocks = <&cru CLK_NPU>;
+		assigned-clock-rates = <600000000>;
+		resets = <&cru SRST_A_NPU>, <&cru SRST_H_NPU>;
+		reset-names = "srst_a", "srst_h";
+		power-domains = <&power RK3568_PD_NPU>;
+		operating-points-v2 = <&npu_opp_table>;
+		iommus = <&npu_mmu>;
+		rknpu-supply = <&vdd_gpu_npu>;
+		status = "okay";
+	};
+};
+
+/* 3. Keep the NPU rail always on -------------------------------------- */
+
+&vdd_gpu_npu {
+	regulator-always-on;
+};
