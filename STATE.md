@@ -112,6 +112,11 @@ first output: -0.355571
 + `dtc -@` и кладётся в `/boot/overlay-user/rk3566-rknpu.dtbo`, в `armbianEnv.txt` —
 `user_overlays=rk3566-rknpu`.
 
+**Состояние борта на момент записи:** работает наше ядро (`#4 SMP PREEMPT Sat Nov 21
+18:28:36 MSK 2026`), `uname -r` = `6.18.24-current-rockchip64`, Wi-Fi на 192.168.0.70.
+Штатное ядро лежит рядом как `/boot/vmlinuz-6.18.24-current-rockchip64.stock`
+(40 503 808 байт) — откат одним `dd conv=notrunc` по блокам 454656, без перепрошивки.
+
 **Осталось (не блокирует):** `error -EBUSY: can't request region for resource
 [mem 0xfde40000-0xfde4ffff]` — reg NPU (64 КБ) накрывает окно MMU `fde4b000`; на работу
 не влияет, но стоит сузить `reg` в оверлее. И `devfreq: Couldn't update frequency
