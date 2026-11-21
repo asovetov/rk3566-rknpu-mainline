@@ -55,8 +55,43 @@ The device-tree overlay needed board-specific changes too
 - on this board the NPU rail is `vdd_gpu_npu` (RK809 DCDC_REG2, shared with the
   GPU), not `vdd_npu`;
 - `interrupt-parent = <&gic>` added to the NPU and IOMMU nodes;
-- IOMMU left `disabled` (non-IOMMU mode): `rockchip-iommu` v2 does not allocate
-  page tables below 4 GB — a known driver bug, not fixable from a module.
+- two overlay variants ship here: `dts/rk3566-rknpu-overlay.dts` keeps the IOMMU
+  `disabled`, `dts/rk3566-rknpu-iommu-overlay.dts` enables it as `rockchip,iommu`
+  (v1 ops, 32-bit DTE). The IOMMU variant needs the kernel patch described below.
+
+## IOMMU mode (works, needs a one-patch kernel)
+
+The RK3566 NPU MMU is a `rockchip-iommu` **v1** block (32-bit DTE), while VOP2,
+VEPU and VDPU on the same SoC are v2 (40-bit). The mainline driver keeps a single
+global `rk_ops` and rejects a second instance with a different revision
+(`WARN_ON(rk_ops != ops); return -EINVAL;`), so v1 and v2 cannot coexist and you
+end up disabling display and hardware decode to get the NPU MMU.
+
+`patches/0002-iommu-per-device-ops.patch` backports Simon Xue's
+"iommu/rockchip: Drop global rk_ops in favor of per-device ops" to 6.18.24: `rk_ops`
+moves into `struct rk_iommu` and `struct rk_iommu_domain`, set from
+`of_device_get_match_data()`. With it, the NPU MMU is `rockchip,iommu` and
+everything else stays on `rockchip,rk3568-iommu`.
+
+Verified on Radxa ZERO 3W, 6.18.24, full 4 GB of RAM, rknpu 0.9.8, librknnrt 2.5.0:
+
+```
+platform fde40000.npu: Adding to iommu group 0
+RKNPU fde40000.npu: RKNPU: rknpu iommu is enabled, using iommu mode
+[drm] Initialized rknpu 0.9.8 for fde40000.npu on minor 1
+```
+
+resnet18, five runs of 30 iterations at 800 MHz: 9.08, 9.08, 9.09, 9.10, 9.08 ms
+per frame. Output fingerprint -0.355571, no `-22` in dmesg, no job timeouts.
+Prebuilt module and overlay: `artifacts/`.
+
+Building a kernel for an Armbian image has one trap unrelated to the NPU: modules
+in the image carry split BTF bound to the type IDs of the vmlinux they were built
+with, so any config delta makes `btf_parse_module()` fail with `-EINVAL` and
+`init_module()` rejects the module. The board then boots without Wi-Fi and with
+273 `BPF: Invalid name_offset` lines in dmesg. Set
+`CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` and the mismatch becomes a warning.
+
 
 ## Build
 
@@ -96,7 +131,7 @@ Verify:
 
 ```bash
 dmesg | grep -i rknpu
-# RKNPU: rknpu iommu device-tree entry not found!, using non-iommu mode
+# RKNPU: rknpu iommu is enabled, using iommu mode
 # [drm] Initialized rknpu 0.9.8 for fde40000.npu on minor 1
 # devfreq range: 200000000-800000000 Hz
 ls /dev/dri/by-path/ | grep npu      # platform-fde40000.npu-render
@@ -134,9 +169,12 @@ still detects a 10–15 px target, versus 291 ms for fp16.
 
 ## Limitations
 
-- IOMMU is off, so the NPU works with physical addresses. Fine for a tracker; to
-  enable IOMMU you need a `rockchip-iommu` fix (GFP_DMA32) or `mem=3840M` on the
-  kernel command line.
+- IOMMU works with the per-device-ops patch. Without that patch the NPU runs in
+  non-IOMMU mode (physical addresses), which is fine for a headless tracker.
+- The NPU `reg` (64 KB at `fde40000`) covers the MMU window at `fde4b000`, so the
+  driver logs `error -EBUSY: can't request region for resource
+  [mem 0xfde40000-0xfde4ffff]`. Harmless for inference; narrowing `reg` in the
+  overlay removes the message.
 - Frequencies above 800 MHz were not tested (the OPP table stops at 800).
 - Verified on RK3566 (ZERO 3W). RK3568/RK3588 should be similar but are untested.
 
