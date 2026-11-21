@@ -72,6 +72,51 @@ preempt mod_unload aarch64`, то есть модули борта (rknpu, aic88
 Страховка: полный образ eMMC от 19.11 — `~/radxa-emmc-20261119.img.zst` (763 МБ),
 файлы борта — `~/radxa-files-20261119.tar.zst`.
 
+## РАБОТАЕТ: NPU на mainline 6.18.24 (2026-11-21)
+
+Самосборное ядро грузится, NPU поднят в IOMMU-режиме. Итог проверки на борте:
+
+```
+platform fde40000.npu: Adding to iommu group 0
+RKNPU fde40000.npu: RKNPU: rknpu iommu is enabled, using iommu mode
+[drm] Initialized rknpu 0.9.8 for fde40000.npu on minor 1
+RKNPU: devfreq enabled, initial freq: 594000000 Hz, volt: 900000 uV
+librknnrt: 2.5.0 / driver: 0.9.8
+iters: 30  per-frame: 9.08 ms  fps: 110.1   (5 прогонов: 9.08–9.10 мс)
+first output: -0.355571
+```
+
+То есть выполнены все приёмочные условия: iommu-группа с NPU есть, ошибок `-22` нет,
+`/sys/class/devfreq/fde40000.npu` живой (800 МГц на `performance`), ~9,1 мс на кадр,
+отпечаток `-0.355571`.
+
+**Что оказалось причиной всех неудач с загрузкой** (двое суток поисков): не патч IOMMU,
+не RELR, не версия GCC и не конфиг, а **split-BTF модулей Armbian**. Модули штатного
+образа несут BTF, привязанный к id типов *своего* vmlinux; любой сдвиг конфига ломает
+соответствие, и `btf_parse_module()` в `kernel/bpf/btf.c` отдаёт `-EINVAL` **фатально** —
+модуль не грузится. Отсюда `Failed to insert module 'autofs4': Invalid argument` и
+мёртвая сеть, хотя ядро стартовало и systemd поднимался.
+
+Лечится одной опцией: `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` (зависит от
+`DEBUG_INFO_BTF_MODULES`). Выключать `CONFIG_DEBUG_INFO_BTF` не надо.
+
+**Рабочая сборка:** GCC 13.5 (Ubuntu 26.10 cross), binutils 2.47, `CONFIG_RELR` выключен,
+`CONFIG_MODULE_ALLOW_BTF_MISMATCH=y`, патч `0002-iommu-per-device-ops.patch` применён.
+`Image` — `~/work/k61824/Image.btfallow-6.18.24` (40 126 976 байт, vermagic
+`6.18.24-current-rockchip64`), дерево — `~/work/k61824/src13`, сборка — `~/bin/radxa-build-gcc13.sh`.
+
+**Установка на борт:** `rknpu.ko` собирается на самой плате против
+`/lib/modules/$(uname -r)/build` (на хосте нельзя: в нашем дереве нет `Module.symvers`,
+пока не сделан `make modules`), кладётся в `/lib/modules/$(uname -r)/updates/` + `depmod`;
+оверлей `dts/rk3566-rknpu-iommu-overlay.dts` компилируется `cpp -nostdinc -undef -D__DTS__`
++ `dtc -@` и кладётся в `/boot/overlay-user/rk3566-rknpu.dtbo`, в `armbianEnv.txt` —
+`user_overlays=rk3566-rknpu`.
+
+**Осталось (не блокирует):** `error -EBUSY: can't request region for resource
+[mem 0xfde40000-0xfde4ffff]` — reg NPU (64 КБ) накрывает окно MMU `fde4b000`; на работу
+не влияет, но стоит сузить `reg` в оверлее. И `devfreq: Couldn't update frequency
+transition information` — косметика.
+
 ## Состояние на 2026-11-21, ночь (самосборное ядро: ядро стартует, userspace нет)
 
 Плата снова в сети: Armbian 26.2.5, ядро 6.18.24-current-rockchip64 (штатное,
