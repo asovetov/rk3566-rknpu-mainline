@@ -45,7 +45,7 @@ the split int8 model versus 2.7 FPS on fp16.
 
 ## Reading the two outputs in C
 
-`scripts/drone_track_roi.c` shows the pattern: take the argmax over the scores
-tensor, then read `boxes[0..3][k]` for that anchor (`[1, 4, N]`, channel-major).
+Reading the pattern is straightforward: take the argmax over the scores tensor,
+then read `boxes[0..3][k]` for that anchor (`[1, 4, N]`, channel-major).
 Coordinates are in the model's input space; map them back to frame coordinates by
 adding the crop origin.
